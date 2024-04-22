@@ -1,6 +1,8 @@
 import numpy as np
 import dispy as dispy, dispy.httpd, logging
-class PSO():
+from base import SkoBase
+
+class PSO(SkoBase):
     """
     Do PSO (Particle swarm optimization) algorithm.
 
@@ -73,22 +75,22 @@ class PSO():
     def __init__(self, func, n_dim=None, pop=40, max_iter=150, lb=-1e5, ub=1e5, w=0.8, c1=0.5, c2=0.5,
                  constraint_eq=tuple(), constraint_ueq=tuple(), verbose=False
                  , dim=None,cluster=None):
-        self.cluster = cluster
+        self.cluster=cluster
         #cluster = dispy.JobCluster(func, nodes=['172.50.46.243','172.50.46.104'], loglevel=logging.DEBUG, ping_interval=1000,cleanup=False,dest_path='.\\node')
         n_dim = n_dim or dim  # support the earlier version
         def func_transformer(func):
             def caculate(X):
-                jobs = []
+                jobs=[]
                 for num in range(pop):
                     #print(X[num])
-                    job = self.cluster.submit(X[num])
+                    job=self.cluster.submit(X[num])
                     #print(os.getpid())
                     jobs.append(job)
                 result = []
                 for job in jobs:
                     print(job())
                     result.append(job())
-                fittness = np.array(result)
+                fittness=np.array(result)
                 print(fittness)
                 return fittness
             return caculate
