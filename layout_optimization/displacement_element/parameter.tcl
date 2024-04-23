@@ -1,0 +1,13 @@
+set 	parameter1		ZA
+set		parameter2    XB
+set 	parameter3    ZB
+set 	parameter4    XF
+set 	parameter5    ZF
+set		parameter6    A1
+set		parameter7    A2
+set		parameter8    A3
+set		parameter9    A4
+set		parameter10   A5
+set		parameter11   A6
+set		parameter12   A7
+set		parameter13   A8
