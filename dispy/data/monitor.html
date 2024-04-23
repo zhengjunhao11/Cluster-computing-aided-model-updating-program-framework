@@ -1,0 +1,400 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <link type="text/css" rel="stylesheet" href="dispy.css" />
+
+    <script type="text/javascript" src="jquery.js"></script>
+    <script type="text/javascript" src="dispy.js"></script>
+
+    <script type="text/javascript">
+    //<![CDATA[
+
+      var clusters = {};
+      var cur_cluster_name = null;
+      var timer = null;
+      var timeout = 1000 * %(TIMEOUT)s;
+      var sort_key = 'ip_addr';
+      var sorted_keys = [];
+      var show_job_args = false;
+      if (%(SHOW_JOB_ARGS)s == true) {
+        show_job_args = true;
+      }
+
+      $.ajaxSetup({
+        traditional: true
+      });
+
+      function show_cluster() {
+        let cluster = clusters[cur_cluster_name];
+        $('#jobs-submitted').text(cluster.jobs.submitted);
+        $('#jobs-done').text(cluster.jobs.done);
+        $('#jobs-pending').text(cluster.jobs.submitted - cluster.jobs.done);
+
+        if (cluster.sorted_keys.length == 0) {
+          let key_ids = $.map(cluster.nodes, function(node) {
+            return {key:node[sort_key], id:node.ip_addr};
+          });
+          cluster.sorted_keys =
+            $.map(key_ids.sort(function(a, b) {
+              return a.key < b.key ? 1 : (a.key > b.key ? -1 : 0); }),
+                  function(key_id) { return key_id.id; }
+                 );
+        }
+        let rows = '';
+        $.each(cluster.sorted_keys, function(i, key) {
+          let node = cluster.nodes[key];
+          rows += '<tr>' +
+            '<td><input type="checkbox" name="node_select" value="' + node.ip_addr + '" /></td>' +
+            '<td><a href="node.html?host=' + node.ip_addr + '" ' + 'title="View jobs on ' +
+            node.ip_addr + '">' + node.ip_addr + '</a></td><td>' + node.name + '</td><td>' +
+            node.cpus + '</td><td>' + node.busy + '</td>';
+          if (node.avail_info) {
+            rows += '<td>' + (node.avail_info.cpu.toFixed(2) + ' %%') +
+                    '</td><td>' + formatBytes(node.avail_info.memory) +
+                    '</td><td>' + (node.avail_info.swap.toFixed(2) + ' %%') +
+                    '</td><td>' + formatBytes(node.avail_info.disk) + '</td>';
+          } else {
+            rows += '<td>-</td><td>-</td><td>-</td><td>-</td>';
+          }
+          rows += '<td>' + formatBytes(node.tx) + '</td><td>' + formatBytes(node.rx) + '</td>' +
+                  '<td>' + node.jobs_done + '</td><td>' +
+                  (node.jobs_done > 0 ? (node.cpu_time / node.jobs_done).toFixed(2) : 0) +
+                  '</td><td>' + node.cpu_time.toFixed(2) + '</td><td>' +
+                  node.last_update.toLocaleTimeString() + '</td></tr>';
+        });
+        $('#nodes').html(rows);
+      }
+
+      function cluster_status(request) {
+        $.ajax({
+          url: request,
+          method: 'GET',
+          dataType: 'json',
+          timeout: Math.min(5000, timeout),
+
+          success: function(status_data) {
+            let cluster;
+            let changed = false;
+            $.each(status_data, function(i, status) {
+              cluster = clusters[status.name];
+              if (!cluster || status.nodes.length > 0 ||
+                  cluster.jobs.submitted != status.jobs.submitted ||
+                  cluster.jobs.done != status.jobs.done ||
+                  cluster.jobs.pending != status.jobs.pending) {
+                changed = true;
+                return false;
+              }
+            });
+            if (changed) {
+              let combined = false;
+              if (status_data.length > 1) {
+                clusters[''] = {name: '* (All)'};
+                combined = clusters[''];
+              }
+              if (combined) {
+                combined.jobs = {submitted: 0, pending: 0, done: 0};
+                combined.nodes = {};
+                combined.sorted_keys = [];
+              }
+
+              $.each(status_data, function(i, status) {
+                if (clusters.hasOwnProperty(status.name)) {
+                  cluster = clusters[status.name];
+                } else {
+                  cluster = {name: status.name, jobs: {}, nodes: {}, sorted_keys: []};
+                  clusters[status.name] = cluster;
+                }
+                cluster.jobs = status.jobs;
+                if (combined) {
+                  combined.jobs.submitted += cluster.jobs.submitted;
+                  combined.jobs.pending += cluster.jobs.pending;
+                  combined.jobs.done += cluster.jobs.done;
+                }
+
+                $.each(status.nodes, function(i, node) {
+                  node.last_update = new Date(1000 * node.update_time);
+                  cluster.nodes[node.ip_addr] = node;
+                });
+
+                if (sort_key == 'ip_addr') {
+                  let keys = $.map(cluster.nodes, function(node) {
+                    return node.ip_addr;
+                  });
+                  cluster.sorted_keys = merge_sorted_uniq(cluster.sorted_keys,
+                                                          keys.sort(desc_cmp), desc_cmp);
+                } else {
+                  cluster.sorted_keys = [];
+                }
+              });
+
+              if (!cur_cluster_name) {
+                if (combined) {
+                  cur_cluster_name = '';
+                } else {
+                  cur_cluster_name = status_data[0].name;
+                }
+              }
+              let cluster_names = '<strong>Cluster : </strong>';
+              cluster_names += '<select name="cluster-names" style="margin-left:5px;">';
+
+              $.each(clusters, function(name, cluster) {
+                if (combined && combined !== cluster) {
+                  $.each(cluster.nodes, function(i, node) {
+                    let combined_node = combined.nodes[node.ip_addr];
+                    if (combined_node) {
+                      combined_node.busy += node.busy;
+                      combined_node.jobs_done += node.jobs_done;
+                      combined_node.cpu_time += node.cpu_time;
+                      combined_node.last_update =
+                        (node.last_update.getTime() > combined_node.last_update.getTime() ?
+                         node.last_update : combined_node.last_update);
+                      combined.nodes[node.ip_addr] = combined_node;
+                    } else {
+                      combined.nodes[node.ip_addr] = $.extend(true, {}, node);
+                    }
+                  });
+                }
+                cluster_names += '<option ' +
+                  (cur_cluster_name == name ? 'selected="selected" ' : '') +
+                  ' value="' + name + '">' + cluster.name + '</option>';
+              });
+              cluster_names += '</select>';
+              $('#cluster-names-container').html(cluster_names);
+
+              show_cluster();
+            }
+
+            $('#messages').html('<li>Status updated at ' +
+                                (new Date()).toLocaleTimeString() + '</li>');
+            if (timeout >= 1000) {
+              timer = setTimeout(function() { cluster_status('cluster_updates') }, timeout);
+            }
+          },
+
+          error: function(jqXHR, textStatus, errorThrown) {
+            $('#messages').append('<li style="color:red">' +
+              'Could not get status from dispy cluster; ' +
+              'reload this page when cluster is ready.</li>');
+            if (timer != null) {
+              clearTimeout(timer);
+              timer = null;
+            }
+          }
+        });
+      }
+
+      $(document).ready(function() {
+
+        $('#cluster-name').text('');
+        cluster_status('cluster_status');
+
+        $('#show_job_args').prop('checked', show_job_args);
+        $('select[name="sort-key"]').val(sort_key);
+
+        $('#update').click(function() {
+          if (show_job_args != $('#show_job_args').prop('checked')) {
+            show_job_args = $('#show_job_args').prop('checked');
+            $.ajax({
+              url: '/update',
+              method: 'POST',
+              data: {timeout: update_sec, show_job_args: show_job_args},
+              timeout: 1000,
+
+              success: function() {
+                $('#messages').html('<li>Configuration updated.</li>');
+              },
+
+              error: function() {
+                $('#messages').html('<li style="color:red">' +
+                                    'Configuration update failed.</li>');
+              }
+            });
+	  }
+
+          let update_sec = $('#timeout-value').val();
+          if (!$.isNumeric(update_sec)) {
+            $('#messages').append('<li>Invalid timeout value ignored.</li>');
+            $('#timeout-value').val(timeout / 1000);
+            update_sec = timeout / 1000;
+          }
+          update_sec = parseInt(update_sec);
+          if (update_sec < 1) {
+            update_sec = 0;
+            $('#messages').append('<li>Timed updates disabled.</li>');
+          }
+
+          if (timeout != (1000 * update_sec)) {
+              $('#timeout-value').val(update_sec);
+              timeout = 1000 * update_sec;
+              if (timer != null) {
+		  clearTimeout(timer);
+		  timer = null;
+              }
+              cluster_status('cluster_updates');
+	  }
+
+          if (sort_key != $('#sort-key').val()) {
+            sort_key = $('#sort-key').val();
+            sorted_keys = [];
+            show_cluster();
+          }
+
+        });
+
+        $('#node-execute').click(function() {
+          $('#messages').html('');
+          let node_action = $('select[name="node-action"]').val();
+          let nodes = [];
+          $('input[type="checkbox"][name="node_select"]').each(function(i) {
+            if ($(this).prop('checked')) {
+              nodes.push($(this).val().trim());
+            }
+          });
+          if (nodes.length == 0) {
+            return false;
+          }
+
+          $.ajax({
+            url: '/' + node_action,
+            method: 'POST',
+            data: {cluster: cur_cluster_name, nodes: JSON.stringify(nodes)},
+            dataType: 'json',
+            timeout: 5000,
+
+            success: function(status) {
+              if (status == 0) {
+                $('#messages').html('Node execute success. : ' + status);
+              } else {
+                $('#messages').html('Node execute failed. : ' + status);
+              }
+            },
+
+            error: function(jqXHR, textStatus, errorThrown) {
+              $('#messages').html('Node execute request failed.' + textStatus);
+            }
+          })
+
+        });
+
+        $('#cluster-names-container').on('change', 'select[name="cluster-names"]', function() {
+          cur_cluster_name = $(this).val();
+          show_cluster();
+        });
+
+        $('#all-nodes').click(function() {
+	  let check = $(this).prop('checked') == true;
+          $('input[type="checkbox"][name="node_select"]').each(function(i) {
+            $(this).prop('checked', check);
+          });
+	});
+
+      });
+    //]]>
+    </script>
+
+  <title>dispy: Cluster Status</title>
+  </head>
+  <body>
+    <div id="page">
+      <nav style="margin:0 auto;" id="navigation" role="navigation">
+        <ul>
+          <li class="active"><a href="monitor.html">Monitor</a></li>
+          <li><a href="manage.html">Manage</a></li>
+          <li><a href="node.html">Node</a></li>
+        </ul>
+      </nav>
+
+      <h1><span class="title">dispy: Cluster Status</span></h1>
+
+      <div id="cluster-names-container" class="border" style="padding:10px;display:inline-block;">
+      </div>
+
+      <table class="border alt"
+        style="background:transparent;margin:10px auto;font-weight:bold;text-align:right;">
+        <tr>
+           <td>Jobs Submitted : </td>
+	   <td id="jobs-submitted">0</td>
+        </tr>
+        <tr>
+	  <td style="border-top: 1px solid #bcd;">Jobs Done : </td>
+          <td style="border-top: 1px solid #bcd;" id="jobs-done">0</td>
+        </tr>
+        <tr>
+          <td style="border-top: 1px solid #bcd;">Jobs Pending : </td>
+          <td style="border-top: 1px solid #bcd;" id="jobs-pending">0</td>
+        </tr>
+      </table>
+      <table class="shadow alt" style="text-align:right;margin:10px auto;">
+        <caption><span class="border" style="display:inline-block;">Nodes</span></caption>
+        <thead>
+          <tr>
+            <th rowspan="2"><input type="checkbox" id="all-nodes" /></th>
+            <th rowspan="2">IP Address</th><th rowspan="2">Name</th>
+            <th rowspan="2">CPUs</th><th rowspan="2">Busy</th>
+            <th colspan="4">Available</th><th colspan="2">Data</th>
+            <th rowspan="2">Jobs<br />Done</th>
+            <th rowspan="2">Sec/Job</th><th rowspan="2">CPU Time<br />Sec</th>
+            <th rowspan="2">Last Update</th>
+	  </tr>
+
+	  <tr>
+	    <th>CPU</th><th>Memory</th><th>Swap</th><th>Disk</th>
+	    <th>Sent</th><th>Recvd</th>
+          </tr>
+        </thead>
+        <tbody id="nodes">
+        </tbody>
+      </table>
+
+      <hr style="margin:10px;" />
+
+      <table id="inputs" style="margin:10px auto;text-align:left;">
+	<tr>
+          <td><strong>Update Interval Seconds :</strong></td>
+          <td><input style="width:3em;" maxlength="6" type="text" id="timeout-value"
+		     value="%(TIMEOUT)s" /></td>
+	</tr>
+	<tr>
+          <td><strong>Show Job Aguments :</strong></td>
+          <td><input style="width:3em;" maxlength="6" type="checkbox" id="show_job_args" ></td>
+	</tr>
+	<tr>
+          <td><strong>Sort Nodes by : </strong></td>
+          <td><select name="sort-key" id="sort-key" style="margin-left:5px;">
+              <option value="ip_addr">IP Address</option>
+              <option value="name">Name</option>
+              <option value="cpu_time">CPU Time</option>
+              <option value="done">Jobs Done</option>
+              <option value="last_update">Last Update</option>
+            </select></td>
+	</tr>
+      </table>
+      <div style="text-align:center;">
+	<button style="margin:5px auto;" type="button" id="update">Update</button>
+      </div>
+
+      <hr style="margin:10px;" />
+
+      <div style="margin:10px auto;">
+        <span class="border" style="display:inline-block;">
+	  <strong>Selected Nodes : </strong>
+          <select name="node-action" style="margin-left:5px;">
+            <option value="" selected="selected">Select</option>
+            <option value="allocate_node">Allocate to Cluster</option>
+            <option value="deallocate_node">Deallocate from Cluster</option>
+            <option value="close_node">Close for Cluster</option>
+          </select>
+          <button type="button" id="node-execute" style="margin-left:5px;">Execute</button>
+        </span>
+      </div>
+
+      <div>
+        <ul id="messages" style="margin:1em auto;display:inline-block;text-align:left;"></ul>
+      </div>
+
+    </div>
+  </body>
+</html>
