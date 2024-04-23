@@ -28,9 +28,9 @@ take the anaocnda promopt as the example
 
 write the commend line in the anaconda promopt to call Python to run the dispynode.py: python **dirctionary of dispy**\dispynode.py -c 12 -i **ipv4** of computing node --dest_path_prefix= **define the directionary to store the file** --zombie_interval=999999
 
-a example of successful computing-node
+:wrench:`a example of successful computing-node`
 
-![Image text](https://raw.github.com/yourName/repositpry/master/yourprojectName/img-folder/test.jpg)
+![Image text](https://github.com/zhengjunhao11/Cluster-computing-aided-model-updating-program-framework/blob/main/computing_node.png)
 
 
 
