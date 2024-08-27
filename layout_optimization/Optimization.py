@@ -55,7 +55,7 @@ def func(x):
         A6 = 0.0045 * x[10] - 0.00395
         A7 = 0.0045 * x[11] - 0.00395
         A8 = 0.0045 * x[12] - 0.00395
-        # 将变量写入文件
+        # write the updating paramters into the tcl file
         parameter_old = ['ZA', 'XB', 'ZB', 'XF', 'ZF', 'A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8']
         parameter_new = [str(ZA), str(XB), str(ZB), str(XF), str(ZF), str(A1),
                          str(A2), str(A3), str(A4), str(A5), str(A6), str(A7), str(A8)]
@@ -110,8 +110,6 @@ def func(x):
                         obj_fun = 1000
                 else:
                     obj_fun = 1000
-                # 读取OS的结果
-                # 计算距离OL5K
                 # write parameters into file
                 file = time_str + ' ' + pid_dir + '_parameter.txt'
                 con_input = time_str + ' ' + pid_dir + ' ' + ' con ' + str(parameter_new) + '\n'
